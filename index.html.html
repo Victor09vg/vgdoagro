@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sistema Agro - Gestão Simples</title>
+  <style>
+    :root{--bg:#f5f7fb;--card:#ffffff;--accent:#2b8aef;--muted:#6b7280}
+    *{box-sizing:border-box;font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial}
+    body{margin:0;background:var(--bg);color:#111}
+    .container{max-width:980px;margin:28px auto;padding:18px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(17,24,39,0.06);margin-bottom:16px}
+
+    form.row{display:flex;gap:12px;flex-wrap:wrap}
+    form input, form button{padding:10px;border-radius:8px;border:1px solid #e6e9ef}
+    input[type="number"]{width:140px}
+    input[type="text"]{flex:1;min-width:180px}
+    button.primary{background:var(--accent);color:#fff;border:none;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid #e6e9ef;cursor:pointer}
+
+    .grid{display:grid;grid-template-columns:1fr 380px;gap:16px}
+    .prod-list{max-height:420px;overflow:auto}
+    .prod-item{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:8px;border:1px solid #f1f3f5;margin-bottom:8px}
+    .prod-meta{display:flex;gap:12px;align-items:center}
+    .tag{background:#eef6ff;color:#0b60b8;padding:6px 8px;border-radius:8px;font-size:13px}
+    .muted{color:var(--muted);font-size:13px}
+
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;text-align:left;border-bottom:1px solid #f1f3f5;font-size:14px}
+    .small{font-size:13px;color:var(--muted)}
+
+    .actions button{margin-left:6px}
+
+    footer{margin-top:12px;text-align:center;color:var(--muted);font-size:13px}
+
+    @media (max-width:880px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Sistema Agro — Gestão de Produtos</h1>
+      <div class="small">Dados salvos localmente (localStorage)</div>
+    </header>
+
+    <section class="card">
+      <h3>Adicionar produto</h3>
+      <form id="formAdd" class="row">
+        <input id="pNome" type="text" placeholder="Nome do produto (ex: Soja (saca))" required />
+        <input id="pEstoque" type="number" placeholder="Estoque inicial" value="0" min="0" required />
+        <input id="pPreco" type="number" placeholder="Preço unitário (R$)" value="0" step="0.01" min="0" required />
+        <button type="submit" class="primary">Adicionar</button>
+      </form>
+    </section>
+
+    <div class="grid">
+      <div>
+        <section class="card">
+          <h3>Produtos</h3>
+          <div id="produtos" class="prod-list"></div>
+          <div class="muted">Clique em "Produzir" para aumentar estoque ou "Vender" para registrar venda.</div>
+        </section>
+
+        <section class="card">
+          <h3>Relatório de Vendas</h3>
+          <div style="max-height:240px;overflow:auto">
+            <table id="tabelaVendas">
+              <thead>
+                <tr><th>Data</th><th>Produto</th><th>Qtd</th><th>Valor (R$)</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;align-items:center">
+            <div class="small">Total faturado:</div>
+            <div id="totalFaturado" class="tag">R$ 0,00</div>
+          </div>
+        </section>
+      </div>
+
+      <aside>
+        <section class="card">
+          <h3>Resumo</h3>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="small">Produtos cadastrados: <strong id="countProdutos">0</strong></div>
+            <div class="small">Total em estoque (unidades): <strong id="totalEstoque">0</strong></div>
+            <div class="small">Valor estimado do estoque: <strong id="valorEstoque">R$ 0,00</strong></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Ações rápidas</h3>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button class="primary" id="btnLimpar">Limpar dados (localStorage)</button>
+            <button class="ghost" id="btnExport">Exportar relatório (CSV)</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="small">Feito para controle simples de produção e vendas em empresas do agronegócio.</footer>
+  </div>
+
+  <script>
+    const LS_KEY = 'sistema_agro_v1';
+    let state = { produtos: {}, vendas: [] };
+
+    const money = v => Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
+    function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+    function load(){
+      const raw = localStorage.getItem(LS_KEY);
+      if(raw){ try{ state = JSON.parse(raw); }catch(e){ console.warn('Erro parse LS',e); } }
+      renderAll();
+    }
+
+    function renderAll(){ renderProdutos(); renderVendas(); renderResumo(); }
+
+    function renderProdutos(){
+      const container = document.getElementById('produtos');
+      container.innerHTML = '';
+      const nomes = Object.keys(state.produtos).sort();
+      if(nomes.length === 0){
+        container.innerHTML = '<div class="muted">Nenhum produto cadastrado.</div>';
+        document.getElementById('countProdutos').innerText = '0';
+        return;
+      }
+      nomes.forEach(nome => {
+        const p = state.produtos[nome];
+        const el = document.createElement('div'); el.className = 'prod-item';
+
+        const left = document.createElement('div'); left.className='prod-meta';
+        left.innerHTML = `<div style="min-width:140px"><strong>${p.nome}</strong><div class="small">${money(p.preco)}</div></div>`;
+
+        const center = document.createElement('div');
+        center.innerHTML = `<div class="tag">Estoque: ${p.estoque}</div>`;
+
+        const right = document.createElement('div'); right.className='actions';
+        const btnProd = document.createElement('button'); btnProd.innerText='Produzir'; btnProd.className='ghost';
+        btnProd.onclick = ()=>actionProducao(p.nome);
+        const btnVender = document.createElement('button'); btnVender.innerText='Vender'; btnVender.className='primary';
+        btnVender.onclick = ()=>actionVenda(p.nome);
+        const btnDel = document.createElement('button'); btnDel.innerText='Remover'; btnDel.className='ghost';
+        btnDel.onclick = ()=>removerProduto(p.nome);
+
+        right.appendChild(btnProd); right.appendChild(btnVender); right.appendChild(btnDel);
+        el.appendChild(left); el.appendChild(center); el.appendChild(right);
+        container.appendChild(el);
+      });
+    }
+
+    function renderVendas(){
+      const tbody = document.querySelector('#tabelaVendas tbody');
+      tbody.innerHTML = '';
+      let total = 0;
+      state.vendas.slice().reverse().forEach(v => {
+        const tr = document.createElement('tr');
+        const d = new Date(v.dataIso);
+        tr.innerHTML = `<td>${d.toLocaleString('pt-BR')}</td><td>${v.produto}</td><td>${v.quantidade}</td><td>${money(v.valor)}</td>`;
+        tbody.appendChild(tr);
+        total += Number(v.valor);
+      });
+      document.getElementById('totalFaturado').innerText = money(total);
+    }
+
+    function renderResumo(){
+      const nomes = Object.keys(state.produtos);
+      document.getElementById('countProdutos').innerText = nomes.length;
+      const totalEst = nomes.reduce((s,k)=>s + Number(state.produtos[k].estoque),0);
+      document.getElementById('totalEstoque').innerText = totalEst;
+      const valorEst = nomes.reduce((s,k)=>s + (Number(state.produtos[k].estoque) * Number(state.produtos[k].preco)),0);
+      document.getElementById('valorEstoque').innerText = money(valorEst);
+    }
+
+    function adicionarProduto(nome, estoque, preco){
+      if(!nome) return alert('Nome obrigatório');
+      if(state.produtos[nome]) return alert('Produto já cadastrado com esse nome.');
+      state.produtos[nome] = {nome, estoque: Number(estoque), preco: Number(preco)};
+      save(); renderAll();
+    }
+
+    function removerProduto(nome){
+      if(!confirm('Remover o produto "'+nome+'"?')) return;
+      delete state.produtos[nome];
+      save(); renderAll();
+    }
+
+    function actionProducao(nome){
+      const q = prompt('Quantidade produzida:', '0');
+      if(q === null) return;
+      const qtd = parseInt(q);
+      if(isNaN(qtd) || qtd <= 0) return alert('Quantidade inválida');
+      state.produtos[nome].estoque += qtd;
+      save(); renderAll();
+      alert('Produção registrada: +' + qtd + ' ' + nome);
+    }
+
+    function actionVenda(nome){
+      const q = prompt('Quantidade vendida:', '0');
+      if(q === null) return;
+      const qtd = parseInt(q);
+      if(isNaN(qtd) || qtd <= 0) return alert('Quantidade inválida');
+      if(qtd > state.produtos[nome].estoque) return alert('Estoque insuficiente. Disponível: ' + state.produtos[nome].estoque);
+      const valor = qtd * Number(state.produtos[nome].preco);
+      state.produtos[nome].estoque -= qtd;
+      state.vendas.push({produto: nome, quantidade: qtd, valor: valor, dataIso: new Date().toISOString()});
+      save(); renderAll();
+      alert('Venda registrada: ' + qtd + ' x ' + nome + ' — ' + money(valor));
+    }
+
+    document.getElementById('formAdd').addEventListener('submit', e => {
+      e.preventDefault();
+      const nome = document.getElementById('pNome').value.trim();
+      const est = Number(document.getElementById('pEstoque').value);
+      const pr = Number(document.getElementById('pPreco').value);
+      if(!nome){return alert('Nome do produto é obrigatório');}
+      if(isNaN(est) || est < 0){return alert('Estoque inválido');}
+      if(isNaN(pr) || pr < 0){return alert('Preço inválido');}
+      adicionarProduto(nome, est, pr);
+      document.getElementById('formAdd').reset();
+      document.getElementById('pEstoque').value='0';
+      document.getElementById('pPreco').value='0';
+    });
+
+    document.getElementById('btnLimpar').addEventListener('click', ()=>{
+      if(!confirm('Deseja limpar todos os dados salvos?')) return;
+      state = {produtos: {}, vendas: []}; save(); renderAll();
+    });
+
+    document.getElementById('btnExport').addEventListener('click', ()=>{
+      if(state.vendas.length === 0) return alert('Nenhuma venda para exportar');
+      const header = ['data','produto','quantidade','valor'];
+      const rows = state.vendas.map(v=>[v.dataIso, v.produto, v.quantidade, v.valor.toFixed(2)]);
+      const csv = [header.join(','), ...rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""') }"`).join(','))].join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'vendas_agro.csv'; document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    load();
+  </script>
+</body>
+</html>
